@@ -37,3 +37,26 @@ export interface Shortcut {
   default_income_source_id: number | null;
   sort_order: number;
 }
+
+export type Side = 'debit' | 'credit';
+
+export interface JournalLine {
+  id: number;
+  account_id: number;
+  account_name: string;
+  account_nature: AccountNature;
+  side: Side;
+  amount_cents: number;
+}
+
+export interface JournalEntry {
+  id: number;
+  entry_date: string;
+  description: string | null;
+  payee: string | null;
+  category_id: number | null;
+  income_source_id: number | null;
+  category_name: string | null;
+  income_source_name: string | null;
+  lines: JournalLine[];
+}

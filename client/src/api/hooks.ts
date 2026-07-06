@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { api } from './client';
-import type { Account, Category, IncomeSource, Shortcut } from './types';
+import type { Account, Category, IncomeSource, JournalEntry, Shortcut, Side } from './types';
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 export const qk = {
@@ -8,6 +8,7 @@ export const qk = {
   categories: ['categories'] as const,
   incomeSources: ['income-sources'] as const,
   shortcuts: ['shortcuts'] as const,
+  entries: ['entries'] as const,
 };
 
 function invalidate(qc: QueryClient, keys: readonly (readonly string[])[]): void {
@@ -106,5 +107,40 @@ export function useReorderShortcuts() {
   return useMutation({
     mutationFn: (ids: number[]) => api.post('/shortcuts/reorder', { ids }),
     onSuccess: () => invalidate(qc, [qk.shortcuts]),
+  });
+}
+
+// ── Journal entries ─────────────────────────────────────────────────────────
+export interface EntryLineInput {
+  account_id: number;
+  side: Side;
+  amount_cents: number;
+}
+export interface EntryInput {
+  entry_date: string;
+  description: string | null;
+  payee: string | null;
+  category_id: number | null;
+  income_source_id: number | null;
+  lines: EntryLineInput[];
+}
+
+export const useEntries = () =>
+  useQuery({ queryKey: qk.entries, queryFn: () => api.get<JournalEntry[]>('/entries') });
+
+export function useSaveEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id?: number; data: EntryInput }) =>
+      v.id ? api.put<JournalEntry>(`/entries/${v.id}`, v.data) : api.post<JournalEntry>('/entries', v.data),
+    onSuccess: () => invalidate(qc, [qk.entries]),
+  });
+}
+
+export function useDeleteEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/entries/${id}`),
+    onSuccess: () => invalidate(qc, [qk.entries]),
   });
 }
