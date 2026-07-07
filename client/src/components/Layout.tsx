@@ -1,12 +1,13 @@
 import { type ReactNode, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Wallet, BookOpen, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
+import { LayoutDashboard, Wallet, BookOpen, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import QuickAdd from './QuickAdd';
 
 const NAV = [
-  { to: '/', label: 'Balances', icon: Wallet, end: true },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/balances', label: 'Balances', icon: Wallet, end: false },
   { to: '/journal', label: 'Journal', icon: BookOpen, end: false },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false },
 ];
@@ -29,7 +30,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand">Finance&nbsp;&amp;&nbsp;Portfolio Manager</div>
+        <div className="brand">Your Finance Manager</div>
         <nav className="nav">
           {NAV.map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>

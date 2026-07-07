@@ -10,22 +10,15 @@ const NATURE_BLURB: Record<AccountNature, string> = {
   Expense: 'Money spent',
 };
 
+/** Nature-grouped account grid. The headline KPI cards live on the Dashboard. */
 export default function BalancesPage() {
   const { data: balances = [], isLoading } = useBalances();
 
-  const { byNature, totals } = useMemo(() => {
-    const byNature = {} as Record<AccountNature, AccountBalance[]>;
-    for (const n of ACCOUNT_NATURES) byNature[n] = [];
-    for (const b of balances) byNature[b.nature].push(b);
-    const sum = (n: AccountNature) => byNature[n].reduce((s, a) => s + a.balance_cents, 0);
-    const assets = sum('Asset');
-    const liabilities = sum('Liability');
-    const revenue = sum('Revenue');
-    const expense = sum('Expense');
-    return {
-      byNature,
-      totals: { assets, liabilities, netWorth: assets - liabilities, revenue, expense, netIncome: revenue - expense },
-    };
+  const byNature = useMemo(() => {
+    const map = {} as Record<AccountNature, AccountBalance[]>;
+    for (const n of ACCOUNT_NATURES) map[n] = [];
+    for (const b of balances) map[b.nature].push(b);
+    return map;
   }, [balances]);
 
   if (isLoading) return <div className="page"><h1>Account Balances</h1><p className="muted">Loading…</p></div>;
@@ -33,27 +26,6 @@ export default function BalancesPage() {
   return (
     <div className="page wide">
       <h1>Account Balances</h1>
-
-      <div className="kpi-row">
-        <div className="kpi">
-          <div className="kpi-label">Net worth</div>
-          <div className={`kpi-value ${totals.netWorth >= 0 ? 'pos' : 'neg'}`}>{formatCents(totals.netWorth)}</div>
-          <div className="kpi-sub">Assets − Liabilities</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Total assets</div>
-          <div className="kpi-value">{formatCents(totals.assets)}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Total liabilities</div>
-          <div className="kpi-value">{formatCents(totals.liabilities)}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Net income</div>
-          <div className={`kpi-value ${totals.netIncome >= 0 ? 'pos' : 'neg'}`}>{formatCents(totals.netIncome)}</div>
-          <div className="kpi-sub">Revenue − Expense</div>
-        </div>
-      </div>
 
       <div className="nature-grid">
         {ACCOUNT_NATURES.map((nature) => {
