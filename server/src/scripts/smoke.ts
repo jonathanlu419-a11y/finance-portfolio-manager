@@ -9,9 +9,9 @@
  */
 import { pool, query, queryOne } from '../db/pool';
 import { sessionRepo } from '../repositories/sessionRepo';
-import { seedSession, resetSession } from '../db/seed';
+import { seedSession, resetSession, SEED_COUNTS } from '../db/seed';
 
-const EXPECTED = { accounts: 7, categories: 6, income_sources: 4, shortcuts: 4, journal_entries: 5 };
+const EXPECTED: Record<string, number> = { ...SEED_COUNTS };
 
 async function counts(sid: string) {
   const out: Record<string, number> = {};

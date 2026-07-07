@@ -3,8 +3,11 @@
  * manual cookie handling — no shell pipes. Verifies fresh-session auto-seed, Settings
  * CRUD, and the 409 referenced-account delete guard. Run: `npm run e2e` (server must be up).
  */
+import { SEED_COUNTS, SEED_ACCOUNT_NATURES, seedExpectedBalances } from '../db/seed';
+
 const BASE = process.env.E2E_BASE ?? 'http://localhost:3001';
 let cookie = '';
+const N_ENTRIES = SEED_COUNTS.journal_entries;
 
 async function call(method: string, path: string, body?: unknown) {
   const res = await fetch(`${BASE}${path}`, {
@@ -33,10 +36,14 @@ async function main(): Promise<void> {
   assert(sess.status === 200 && sess.body.ok === true, 'GET /api/session → 200 ok');
   assert(cookie.startsWith('sid='), 'session cookie captured');
 
-  console.log('[e2e] auto-seeded counts');
+  console.log('[e2e] auto-seeded counts (from the exported seed manifest)');
   const accounts = await call('GET', '/api/accounts');
-  assert(accounts.body.length === 7, `accounts = 7 (got ${accounts.body.length})`);
-  for (const [e, n] of [['categories', 6], ['income-sources', 4], ['shortcuts', 4]] as const) {
+  assert(accounts.body.length === SEED_COUNTS.accounts, `accounts = ${SEED_COUNTS.accounts} (got ${accounts.body.length})`);
+  for (const [e, n] of [
+    ['categories', SEED_COUNTS.categories],
+    ['income-sources', SEED_COUNTS.income_sources],
+    ['shortcuts', SEED_COUNTS.shortcuts],
+  ] as const) {
     const r = await call('GET', `/api/${e}`);
     assert(r.body.length === n, `${e} = ${n} (got ${r.body.length})`);
   }
@@ -70,7 +77,7 @@ async function main(): Promise<void> {
   const chq = accounts.body.find((a: { id: number; name: string }) => a.name === 'Chequing');
   const sal = accounts.body.find((a: { id: number; name: string }) => a.name === 'Salary');
   const seeded = await call('GET', '/api/entries');
-  assert(seeded.body.length === 5, `seeded entries = 5 (got ${seeded.body.length})`);
+  assert(seeded.body.length === N_ENTRIES, `seeded entries = ${N_ENTRIES} (got ${seeded.body.length})`);
 
   const base = { entry_date: '2026-07-01', description: 'e2e pay', payee: 'X', category_id: null, income_source_id: null };
   const jeCreated = await call('POST', '/api/entries', {
@@ -103,35 +110,39 @@ async function main(): Promise<void> {
   const delE = await call('DELETE', `/api/entries/${jeCreated.body.id}`);
   assert(delE.status === 200, 'delete entry → 200');
   const after = await call('GET', '/api/entries');
-  assert(after.body.length === 5, `back to 5 entries (got ${after.body.length})`);
+  assert(after.body.length === N_ENTRIES, `back to ${N_ENTRIES} entries (got ${after.body.length})`);
 
   console.log('[e2e] session isolation');
   const s1ids = new Set(after.body.map((e: { id: number }) => e.id));
+  const visitor1Cookie = cookie; // kept to prove empty-reset can't cross sessions
   cookie = ''; // force a brand-new visitor
   await call('GET', '/api/session');
   const s2 = await call('GET', '/api/entries');
-  assert(s2.body.length === 5, 'second visitor has its own 5 entries');
+  assert(s2.body.length === N_ENTRIES, `second visitor has its own ${N_ENTRIES} entries`);
   assert(s2.body.every((e: { id: number }) => !s1ids.has(e.id)), 'session isolation: no shared entry ids');
 
-  // Balances computed against the pristine seed of this fresh session (values hand-derived
-  // from the seed entries; verifies the nature-aware Dr/Cr signing + starting balances).
+  // Balances of this fresh session vs the expectation derived from the declarative seed
+  // (independently re-aggregated by SQL server-side — verifies nature-aware Dr/Cr signing).
   console.log('[e2e] account balances (nature-aware)');
   const bals = await call('GET', '/api/accounts/balances');
   const bmap: Record<string, number> = Object.fromEntries(
     bals.body.map((a: { name: string; balance_cents: number }) => [a.name, a.balance_cents]),
   );
-  const expected: Record<string, number> = {
-    Chequing: 341450, Savings: 1050000, 'Credit Card': 4200,
-    Salary: 300000, Groceries: 8550, Rent: 150000, Dining: 4200,
-  };
+  const expected = seedExpectedBalances();
   for (const [name, val] of Object.entries(expected)) {
     assert(bmap[name] === val, `${name} balance = ${val} (got ${bmap[name]})`);
   }
+  const expSum = (nature: string) =>
+    Object.entries(expected)
+      .filter(([name]) => SEED_ACCOUNT_NATURES[name] === nature)
+      .reduce((s, [, v]) => s + v, 0);
   const sum = (nature: string) =>
     bals.body.filter((a: { nature: string }) => a.nature === nature)
       .reduce((s: number, a: { balance_cents: number }) => s + a.balance_cents, 0);
-  assert(sum('Asset') - sum('Liability') === 1387250, `net worth = 1387250 (got ${sum('Asset') - sum('Liability')})`);
-  assert(sum('Revenue') - sum('Expense') === 137250, `net income = 137250 (got ${sum('Revenue') - sum('Expense')})`);
+  const expNetWorth = expSum('Asset') - expSum('Liability');
+  const expNetIncome = expSum('Revenue') - expSum('Expense');
+  assert(sum('Asset') - sum('Liability') === expNetWorth, `net worth = ${expNetWorth} (got ${sum('Asset') - sum('Liability')})`);
+  assert(sum('Revenue') - sum('Expense') === expNetIncome, `net income = ${expNetIncome} (got ${sum('Revenue') - sum('Expense')})`);
 
   // Quick Add semantics: the seeded Expense shortcut must debit the expense account and
   // credit cash. Post an entry from its defaults and check both balances move correctly.
@@ -191,7 +202,29 @@ async function main(): Promise<void> {
     'errors at indexes 1 and 2',
   );
   const entriesAfterImport = await call('GET', '/api/entries');
-  assert(entriesAfterImport.body.length === 8, `entries now 8 (5 seed + qa + 2 imported; got ${entriesAfterImport.body.length})`);
+  const expAfterImport = N_ENTRIES + 3; // seed + qa + 2 imported
+  assert(entriesAfterImport.body.length === expAfterImport, `entries now ${expAfterImport} (seed + qa + 2 imported; got ${entriesAfterImport.body.length})`);
+
+  // Reset variants: {empty:true} wipes to a truly blank slate; plain reset re-seeds.
+  console.log('[e2e] reset — empty vs re-seed');
+  const emptied = await call('POST', '/api/session/reset', { empty: true });
+  assert(emptied.status === 200 && emptied.body.empty === true, 'reset {empty:true} → 200');
+  for (const e of ['accounts', 'categories', 'income-sources', 'shortcuts', 'entries'] as const) {
+    const r = await call('GET', `/api/${e}`);
+    assert(r.body.length === 0, `${e} = 0 after empty`);
+  }
+  // Cross-session guard: emptying visitor 2 must not touch visitor 1's data.
+  const visitor2Cookie = cookie;
+  cookie = visitor1Cookie;
+  const v1After = await call('GET', '/api/entries');
+  assert(v1After.body.length === N_ENTRIES, `visitor 1 unaffected by visitor 2's empty (${N_ENTRIES} entries intact)`);
+  cookie = visitor2Cookie;
+  const reseeded = await call('POST', '/api/session/reset');
+  assert(reseeded.status === 200 && reseeded.body.empty === false, 'plain reset → 200');
+  const accountsAfter = await call('GET', '/api/accounts');
+  const entriesAfter = await call('GET', '/api/entries');
+  assert(accountsAfter.body.length === SEED_COUNTS.accounts, `accounts restored to ${SEED_COUNTS.accounts}`);
+  assert(entriesAfter.body.length === N_ENTRIES, `entries restored to ${N_ENTRIES}`);
 
   console.log('\n[e2e] PASS');
 }

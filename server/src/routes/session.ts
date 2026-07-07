@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sessionRepo } from '../repositories/sessionRepo';
-import { resetSession } from '../db/seed';
+import { resetSession, emptySession } from '../db/seed';
 
 export const sessionRouter = Router();
 
@@ -15,10 +15,14 @@ sessionRouter.get('/session', async (req, res, next) => {
 });
 
 // "Reset demo data" — wipe this session's rows and re-seed the starter dataset.
+// With body {empty: true}: wipe WITHOUT re-seeding (start from a truly blank slate).
+// Both paths operate solely on req.sessionId — no cross-session reach.
 sessionRouter.post('/session/reset', async (req, res, next) => {
   try {
-    await resetSession(req.sessionId);
-    res.json({ ok: true });
+    const empty = req.body?.empty === true;
+    if (empty) await emptySession(req.sessionId);
+    else await resetSession(req.sessionId);
+    res.json({ ok: true, empty });
   } catch (err) {
     next(err);
   }
